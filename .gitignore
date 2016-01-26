@@ -1,0 +1,4 @@
+tmp
+.idea
+.byebug_history
+*.sqlite3

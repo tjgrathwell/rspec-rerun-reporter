@@ -22,10 +22,6 @@ end
 $run_counts = Counter.new
 
 RSpec.describe "flaky spec" do
-  before do
-    sleep 1
-  end
-
   after(:all) do
     $run_counts.increment
   end

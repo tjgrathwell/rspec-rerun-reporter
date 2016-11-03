@@ -1,15 +1,24 @@
 require 'yaml'
+require_relative 'failure_file_parser'
 
 class RspecRerunner
-  RERUN_ATTEMPTS = 5
+  RERUN_ATTEMPTS = ENV.fetch('RERUN_ATTEMPTS', 5).to_i
+  RERUN_THRESHOLD = ENV.fetch('RERUN_THRESHOLD', 5).to_i
 
   def initialize
     @flake_reporter = FlakeReporter.new
+    @failure_file_parser = FailureFileParser.new('tmp/rspec_examples.txt')
   end
 
   def run_tests
     succeeded_initially = system("bundle exec rspec spec")
     return if succeeded_initially
+
+    failure_count = @failure_file_parser.failures_from_persistence_file.length
+    if failure_count > RERUN_THRESHOLD
+      puts "#{failure_count} tests failed, first run, which is over the rerun threshold of #{RERUN_THRESHOLD}"
+      exit 1
+    end
 
     @flake_reporter.add_flakes_from_persistance_file
 

@@ -1,4 +1,5 @@
 require 'sqlite3'
+require_relative 'persisters/sqlite_flake_persister'
 
 class FlakeReporter
   attr_reader :db
@@ -10,10 +11,7 @@ class FlakeReporter
     file_paths[:id_name_map] ||= 'tmp/rspec_id_to_name_map.yml'
     file_paths[:status_persistence] ||= 'tmp/rspec_examples.txt'
 
-    @db = SQLite3::Database.new(file_paths[:db])
-    @db.results_as_hash = true
-
-    create_schema
+    @persister = SqliteFlakePersister.new(file_paths[:db])
 
     @failed_tests = []
   end
@@ -24,18 +22,12 @@ class FlakeReporter
 
   def persist_flakes
     @failed_tests.each do |flake_spec|
-      db.execute(
-        "INSERT INTO test_flakes (example_id, example_name, flaked_on, finished_on) VALUES (?, ?, ?, STRFTIME('%s', 'now'))",
-        [flake_spec[:example_id], flake_spec[:example_name], flake_spec[:time].to_i]
-      )
+      @persister.persist_flake(flake_spec)
     end
   end
 
   def report_flakes(duration = :day)
-    rows = db.execute(
-      "SELECT * FROM test_flakes WHERE finished_on > ? AND finished_on < ?",
-      Time.now.to_i - duration_seconds(duration), Time.now.to_i
-    )
+    rows = @persister.flakes_since(Time.now.to_i - duration_seconds(duration))
 
     if rows.length == 0
       puts "No recent flaky tests in the last #{duration}!"
@@ -87,28 +79,12 @@ class FlakeReporter
   end
 
   def failures_from_persistence_file(flake_time)
-    File.readlines(file_paths[:status_persistence])[2..-1].map do |l|
-      l.split('|').map(&:strip)
-    end.select do |file_ref|
-      file_ref[1] == 'failed'
-    end.map do |file_ref|
-      example_name = file_ref[0]
-      {
-        example_id: example_name,
-        example_name: name_map[example_name],
+    failure_file_parser = FailureFileParser.new(file_paths[:status_persistence])
+    failure_file_parser.failures_from_persistence_file.map do |failure_hash|
+      failure_hash.merge({
+        example_name: name_map[failure_hash[:example_id]],
         time: flake_time
-      }
+      })
     end
-  end
-
-  def create_schema
-    db.execute <<~SQL
-      CREATE TABLE IF NOT EXISTS test_flakes (
-        example_id text,
-        example_name text,
-        flaked_on integer,
-        finished_on integer
-      )
-    SQL
   end
 end
